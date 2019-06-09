@@ -1,4 +1,5 @@
 //-----------------------------------------------------------------------------
+//   Ref to: 
 //   swmm5.c
 //
 //   Project:  EPA SWMM5
@@ -15,30 +16,7 @@
 //   (SWMM). It contains functions that control the flow of computations.
 //
 //   This engine should be compiled into a shared object library whose API
-//   functions are listed in swmm5.h.
-//
-//   Build 5.1.008:
-//   - Support added for the MinGW compiler.
-//   - Reporting of project options moved to swmm_start. 
-//   - Hot start file now read before routing system opened.
-//   - Final routing step adjusted so that total duration not exceeded.
-//
-//   Build 5.1.011:
-//   - Made sure that MS exception handling only used with MS C compiler.
-//   - Added name of module handling an exception to error report.
-//   - Elapsed simulation time now saved to new global variable ElaspedTime.
-//   - Added swmm_getError() function that retrieves error code and message.
-//   - Changed WarningCode to Warnings (# warnings issued).
-//   - Added swmm_getWarnings() function to retrieve value of Warnings.
-//   - Fixed error code returned on swmm_xxx functions.
-//
-//   Build 5.1.012:
-//   - #include <direct.h> only used when compiled for Windows.
-//
-//   Build 5.1.013:
-//   - Support added for saving average results within a reporting period.
-//   - SWMM engine now always compiled to a shared object library.
-//     
+//   functions are listed in swmm5.h.     
 //-----------------------------------------------------------------------------
 #define _CRT_SECURE_NO_DEPRECATE
 
@@ -455,75 +433,83 @@ int DLLEXPORT swmm_step(double* elapsedTime)
     return error_getCode(ErrorCode);
 }
 
-// 2D-link
-int DLLEXPORT Swmm_Link(double* NodeID,int* NodeID_j, double* S_Node_Crest, double* S_Node_Bottom,double* TotalDuration_sec, double* SWMM_DT)
+
+int DLLEXPORT Swmm_Link(double* SWMM_DT)
 //
-//  Input:   NodeID = Node ID to add discharge flow, e.g. [1, 2, 3, ...]
-//	   		 NodeID_j = Node ID j index to add discharge flow
-//           TotalDuration2 = total SWMM duration
-//           SWMM_DT = RouteStep SWMM 
-//  Output:  returns error code
-//  Purpose: identify the j index of each node, total duration and route step.
-//			 constuct a relationship between cell index and jucntion index
+// Get the basic setting in SWMM, e.g. time step
+// Input:   SWMM_DT = RouteStep SWMM 
+// Output:  returns error code
 //
 {
-	int     j;
-	double	xid;
-	int len;
-
-	len = sizeof(NodeID)/sizeof(NodeID[0]);  // number of Node to exchange flow
-
-	for (j = 0; j < len; j++)
-    {
-		xid= strtod(Node[j].ID, NULL);   // strtod: string to double
-		if ((Node[j].type!=1) && xid==*NodeID)    // 1:Juntion
-		{
-			*NodeID_j=j;   // for 2D_model
-			*S_Node_Crest=(Node[j].invertElev+Node[j].fullDepth)* UCF(LENGTH);   // fullDepth: dist. from invert to surface (m)
-			*S_Node_Bottom=(Node[j].invertElev)* UCF(LENGTH);
-		}
-	}
-	*TotalDuration_sec=TotalDuration/1000.00;	//(sec)
 	*SWMM_DT=RouteStep;				//(sec)
 	return ErrorCode;
 }
 
-// 2D-link
-int DLLEXPORT Swmm_to_2D( int* NodeID_j, double* S_Node_Watlevel)
+
+int DLLEXPORT Swmm_valid(int NodeID, double* outflow)
 //
-//  Input:   NodeID_j = Node ID j index to exchange discharge flow, which is an array
-//           S_Node_Watlevel = water level elevation
+// report SWMM result for validation
+// Input:  NodeID = Node ID which is to be validated
+//         outflow = Node's outflow after swmm_step()
+// Output:  returns error code
+//
+{
+	*outflow = Node[NodeID].outflow * UCF(FLOW);	       //(cms)
+	return ErrorCode;
+}
+
+
+int DLLEXPORT Swmm_to_2D(int* NodeID, double* Node_h, double* Cell_Q, double flow_aug)
+//
+//  Input:   NodeID = Node ID which a cell possess, e.g. 123; -1 if No
+//           Node_h = surface water level elevation
+//	     Cell_Q = flow Q to cell
+//	     flow_aug = flow adjustment coefficient
 //  Output:  returns error code
-//  Purpose: obtain the water level in SWMM Node.
-//			 create a file "conduit_level" under run/ElapsedTime/
+//  Purpose: obtain the new water level in SWMM Node and change the Q value in 2D model.
 //
 {
 	int     j;
-	double factor;
+	double  h;
+	//double delta_h;
 
-	j=*NodeID_j;
-	*S_Node_Watlevel=(Node[j].invertElev+Node[j].newDepth)* UCF(LENGTH);
+	j = *NodeID;
+	h = *Node_h;
+	if (h<=0){
+	     *Cell_Q = 0;
+	}
+	else{
+	     *Cell_Q = -min(17.638*h*sqrt(h), 1.001*sqrt(h))*flow_aug;
+	}
 	
 	return ErrorCode;
 }
 
 // 2D-link
-int DLLEXPORT twoD_to_Swmm(int* NodeID_j, double* Node_Q)
+int DLLEXPORT twoD_to_Swmm(int* NodeID_j, double* Node_h, double flow_aug)
 //
 //  Input:   NodeID = Node ID to exchange discharge flow
 //           Node_Q = discharge value to exchange
+//	     flow_aug = flow adjustment coefficient
 //  Output:  returns error code
 //  Purpose: get discharge from 2D to SWMM.
 //
 {
-	int j;
-	double factor;
-	j=*NodeID_j;
-		Node[j].extInflow->baseline = *Node_Q;
+	int j;	
+	double h;
+
+	j = *NodeID_j;
+        h = *Node_h;
+	
+	if (h<=0){
+	     Node[j].extInflow->baseline = 0;
+	}
+	else{
+	     Node[j].extInflow->baseline = min(17.638*h*sqrt(h), 1.001*sqrt(h))*flow_aug;
+	}
 	
 	return ErrorCode;
 }
-
 
 //=============================================================================
 
