@@ -1,3 +1,7 @@
+/*
+Modified from Liu's code, THU
+for linking with SWMM
+*/
 #include <stdlib.h>
 #include <fstream>
 #include <string>
